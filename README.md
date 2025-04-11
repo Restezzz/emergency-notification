@@ -49,13 +49,13 @@ pip install django djangorestframework django-cors-headers channels daphne psyco
 python backend/manage.py migrate
 ```
 
-4. Запустите Django сервер:
+4. Запустите Django сервер (терминал №1):
 
 ```bash
 python backend/manage.py runserver
 ```
 
-5. В отдельном терминале запустите TCP и UDP серверы:
+5. Запустите TCP и UDP сервера (терминал №2):
 
 ```bash
 python backend/manage.py runservers
@@ -70,11 +70,10 @@ cd frontend
 npm install
 ```
 
-2. Запустите React приложение:
+2. Запустите React приложение (терминал №3):
 
 ```bash
-# Убедитесь, что вы находитесь в директории frontend
-cd frontend  # если вы еще не перешли в эту директорию
+cd frontend
 npm start
 ```
 
