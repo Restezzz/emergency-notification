@@ -1,157 +1,267 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
-  Paper,
   Grid,
-  Card,
-  CardContent,
-  CardHeader,
-  Divider,
-  Alert,
+  Button,
   CircularProgress,
-  LinearProgress
+  Alert,
+  Switch,
+  FormControlLabel,
+  Paper
 } from '@mui/material';
-import ServerContext from '../context/ServerContext';
+import { Refresh as RefreshIcon } from '@mui/icons-material';
+import DroneCard from './DroneCard';
+import { simulateDroneData, updateSimulatedDrones } from '../utils/simulationUtils';
+import { loadEvents } from '../utils/eventUtils';
 
+/**
+ * Компонент для отображения данных дронов
+ * Получает данные через UDP протокол или создает симуляцию
+ */
 const DroneData = () => {
-  const { isConnected, socket, currentServer } = useContext(ServerContext);
+  // Состояние для хранения данных дронов
   const [drones, setDrones] = useState({});
-  const [loading, setLoading] = useState(true);
+  // Статус загрузки
+  const [loading, setLoading] = useState(false);
+  // Ошибки получения данных
+  const [error, setError] = useState(null);
+  // Режим симуляции (для разработки) - включен по умолчанию
+  const [simulateMode, setSimulateMode] = useState(true);
+  // События для привязки дронов
+  const [events, setEvents] = useState([]);
 
+  // Загрузка событий ЧС
   useEffect(() => {
-    // Загрузка данных из локального хранилища при инициализации
-    const savedDrones = localStorage.getItem('drone_data');
-    if (savedDrones) {
-      try {
-        setDrones(JSON.parse(savedDrones));
-      } catch (e) {
-        console.error('Ошибка при загрузке данных дронов из кэша:', e);
+    // Загружаем события из localStorage
+    const loadedEvents = loadEvents() || [];
+    setEvents(loadedEvents);
+  }, []);
+
+  /**
+   * Загрузка данных о дронах с сервера
+   */
+  const fetchDroneData = useCallback(async () => {
+    if (simulateMode) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Запрос данных с сервера
+      const response = await fetch('/api/drones');
+      
+      if (!response.ok) {
+        throw new Error(`Ошибка получения данных: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      // Преобразуем массив в объект для удобной работы
+      const dronesObject = {};
+      data.forEach(drone => {
+        dronesObject[drone.drone_id] = drone;
+      });
+      
+      setDrones(dronesObject);
+    } catch (err) {
+      console.error('Ошибка получения данных о дронах:', err);
+      setError(err.message);
+      
+      // При ошибке автоматически включаем режим симуляции
+      if (!simulateMode) {
+        console.log('Переключение на режим симуляции из-за ошибки API');
+        setSimulateMode(true);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [simulateMode]);
+
+  /**
+   * Привязка дронов к событиям ЧС
+   * @param {Object} dronesData - Данные дронов
+   * @param {Array} eventsData - Данные событий
+   * @returns {Object} Обновленные данные дронов с привязкой к событиям
+   */
+  const assignDronesToEvents = useCallback((dronesData, eventsData) => {
+    const updatedDrones = { ...dronesData };
+    const droneIds = Object.keys(updatedDrones);
+    const availableEventIds = [];
+    
+    // Собираем ID доступных событий
+    if (eventsData && eventsData.length > 0) {
+      eventsData.forEach(event => {
+        availableEventIds.push(event.id || Math.random().toString(36).substring(2, 11));
+      });
+    }
+    
+    // Если нет событий или дронов, возвращаем исходные данные
+    if (availableEventIds.length === 0 || droneIds.length === 0) {
+      return updatedDrones;
+    }
+    
+    // Определяем необходимое количество дронов
+    const dronesNeeded = Math.min(droneIds.length, availableEventIds.length);
+    
+    // Сначала сбрасываем все привязки
+    droneIds.forEach(droneId => {
+      updatedDrones[droneId].related_event = null;
+      updatedDrones[droneId].related_event_info = null;
+    });
+    
+    // Привязываем дроны к событиям (1 дрон на 1 событие)
+    for (let i = 0; i < dronesNeeded; i++) {
+      const droneId = droneIds[i];
+      const eventId = availableEventIds[i];
+      const event = eventsData.find(e => (e.id || '').toString() === eventId.toString());
+      
+      if (event && updatedDrones[droneId]) {
+        updatedDrones[droneId].related_event = eventId;
+        updatedDrones[droneId].related_event_info = {
+          location: event.location || 'Неизвестная локация',
+          type: event.event_type || event.title || 'Неизвестное событие'
+        };
       }
     }
+    
+    return updatedDrones;
+  }, []);
+
+  /**
+   * Генерация тестовых данных для режима симуляции
+   */
+  const generateSimulatedData = useCallback(() => {
+    // Генерируем количество дронов равное количеству событий, но не менее 3 и не более 10
+    const eventCount = events.length;
+    const droneCount = Math.max(3, Math.min(eventCount || 5, 10));
+    
+    // Генерируем дронов
+    const simulatedData = simulateDroneData(droneCount, {
+      baseLat: 55.751244,
+      baseLon: 37.618423,
+      minAltitude: 5,
+      maxAltitude: 120,
+      minSpeed: 0, 
+      maxSpeed: 90,
+      minBattery: 20,
+      maxBattery: 100
+    });
+    
+    // Привязываем дронов к событиям
+    const dronesWithEvents = assignDronesToEvents(simulatedData, events);
+    
+    setDrones(dronesWithEvents);
     setLoading(false);
+    setError(null);
+  }, [events, assignDronesToEvents]);
 
-    // Подписка на сообщения WebSocket, если есть подключение
-    if (socket && isConnected) {
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'drone_data') {
-          // Обновляем данные дрона
-          const droneData = data.data;
-          setDrones(prevDrones => {
-            const updatedDrones = {
-              ...prevDrones,
-              [droneData.drone_id]: droneData
-            };
-            localStorage.setItem('drone_data', JSON.stringify(updatedDrones));
-            return updatedDrones;
-          });
-        }
-      };
-
-      // Регулярно запрашиваем данные с сервера, если подключены
-      const fetchInterval = setInterval(async () => {
-        try {
-          if (currentServer) {
-            const response = await fetch(`http://${currentServer.ip}:${currentServer.port}/api/drone-data/latest/`);
-            const data = await response.json();
-            
-            if (Object.keys(data).length > 0) {
-              setDrones(data);
-              localStorage.setItem('drone_data', JSON.stringify(data));
-            }
-          }
-        } catch (error) {
-          console.error('Ошибка при получении данных дронов:', error);
-        }
-      }, 10000); // Каждые 10 секунд
-
-      return () => {
-        clearInterval(fetchInterval);
-        if (socket) {
-          socket.onmessage = null;
-        }
-      };
+  /**
+   * Обновление данных о дронах
+   */
+  const updateDroneData = useCallback(() => {
+    if (simulateMode && Object.keys(drones).length > 0) {
+      // В режиме симуляции немного изменяем данные, только если уже есть данные
+      const updatedDrones = updateSimulatedDrones(drones);
+      setDrones(updatedDrones);
+    } else if (!simulateMode) {
+      // Реальный режим - запрашиваем с сервера
+      fetchDroneData();
     }
-  }, [socket, isConnected, currentServer]);
+  }, [simulateMode, drones, fetchDroneData]);
 
-  const getBatteryColor = (level) => {
-    if (level < 20) return 'error';
-    if (level < 50) return 'warning';
-    return 'success';
+  /**
+   * Ручное обновление по кнопке
+   */
+  const handleRefresh = () => {
+    if (simulateMode) {
+      generateSimulatedData();
+    } else {
+      fetchDroneData();
+    }
   };
 
-  if (loading) {
-    return <CircularProgress />;
-  }
+  /**
+   * Переключение режима симуляции
+   */
+  const handleSimulateModeToggle = (event) => {
+    const isSimulating = event.target.checked;
+    setSimulateMode(isSimulating);
+  };
+
+  // Эффект для начальной загрузки данных
+  useEffect(() => {
+    // Только если еще нет данных или изменился режим симуляции
+    if (Object.keys(drones).length === 0) {
+      if (simulateMode) {
+        generateSimulatedData();
+      } else {
+        fetchDroneData();
+      }
+    }
+  }, [simulateMode, fetchDroneData, generateSimulatedData, drones, events]);
+
+  // Эффект для периодического обновления - каждые 2 секунды
+  useEffect(() => {
+    const interval = setInterval(() => {
+      updateDroneData();
+    }, 2000); // Обновляем данные раз в 2 секунды
+    
+    return () => clearInterval(interval);
+  }, [updateDroneData]);
 
   return (
-    <Box>
-      <Typography variant="h4" gutterBottom>
-        Данные с дронов
-      </Typography>
+    <Box sx={{ mb: 4 }}>
+      <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <Typography variant="h4" component="h1" gutterBottom sx={{ mr: 2 }}>
+          Данные дронов
+        </Typography>
 
-      {!isConnected && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          Вы не подключены к серверу. Данные дронов могут быть устаревшими.
+        <Box sx={{ display: 'flex', alignItems: 'center', my: 1 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={simulateMode}
+                onChange={handleSimulateModeToggle}
+                color="primary"
+              />
+            }
+            label="Режим симуляции"
+            sx={{ mr: 2 }}
+          />
+          
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={handleRefresh}
+            disabled={loading}
+          >
+            Обновить
+          </Button>
+        </Box>
+      </Box>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
         </Alert>
       )}
 
-      {Object.keys(drones).length === 0 ? (
-        <Alert severity="info">
-          Нет данных с дронов.
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : Object.keys(drones).length === 0 ? (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Нет доступных данных о дронах.
         </Alert>
       ) : (
         <Grid container spacing={3}>
-          {Object.keys(drones).map(droneId => {
-            const drone = drones[droneId];
-            return (
-              <Grid size={4} mdsize={6} smsize={12} key={droneId}>
-                <Card>
-                  <CardHeader 
-                    title={`Дрон ${drone.drone_id}`} 
-                    subheader={`Статус: ${drone.status}`}
-                  />
-                  <Divider />
-                  <CardContent>
-                    <Typography variant="body2" gutterBottom>
-                      Координаты: {drone.latitude.toFixed(6)}, {drone.longitude.toFixed(6)}
-                    </Typography>
-                    <Typography variant="body2" gutterBottom>
-                      Высота: {drone.altitude} м
-                    </Typography>
-                    <Typography variant="body2" gutterBottom>
-                      Скорость: {drone.speed} км/ч
-                    </Typography>
-                    
-                    <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-                      <Typography variant="body2" sx={{ minWidth: 100 }}>
-                        Батарея: {drone.battery_level}%
-                      </Typography>
-                      <Box sx={{ width: '100%', ml: 1 }}>
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={drone.battery_level} 
-                          color={getBatteryColor(drone.battery_level)}
-                        />
-                      </Box>
-                    </Box>
-                    
-                    {drone.related_event && (
-                      <Typography variant="body2" sx={{ mt: 2, fontStyle: 'italic' }}>
-                        Связан с событием ID: {drone.related_event}
-                      </Typography>
-                    )}
-                    
-                    <Typography variant="caption" display="block" sx={{ mt: 2, textAlign: 'right' }}>
-                      Обновлено: {new Date(drone.timestamp).toLocaleString()}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            );
-          })}
+          {Object.entries(drones).map(([id, data]) => (
+            <Grid item xs={12} md={6} key={id}>
+              <DroneCard id={id} data={data} />
+            </Grid>
+          ))}
         </Grid>
       )}
     </Box>

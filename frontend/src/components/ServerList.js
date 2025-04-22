@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -12,12 +12,21 @@ import {
   Grid,
   Divider,
   Alert,
-  Snackbar
+  Snackbar,
+  Chip
 } from '@mui/material';
-import { Delete, Link as LinkIcon, LinkOff } from '@mui/icons-material';
+import { Delete, Link as LinkIcon, LinkOff, AccountTreeOutlined } from '@mui/icons-material';
 import ServerContext from '../context/ServerContext';
 
+/**
+ * Компонент управления серверами системы
+ * 
+ * Позволяет добавлять, удалять и подключаться к серверам.
+ * Отображает статус TCP-соединения и идентификатор сессии.
+ * Реализует двойное подключение - WebSocket и TCP.
+ */
 const ServerList = () => {
+  // Получаем функции и состояния из контекста
   const {
     servers,
     addServer,
@@ -26,23 +35,33 @@ const ServerList = () => {
     connectTcpToServer,
     disconnectFromServer,
     currentServer,
-    isConnected
+    isConnected,
+    sessionId
   } = useContext(ServerContext);
 
+  // Состояние для нового сервера
   const [newServer, setNewServer] = useState({
     name: '',
     ip: '',
     port: ''
   });
   
+  // Состояния для уведомлений
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  /**
+   * Обработчик изменения полей ввода
+   * @param {Object} e - Событие изменения поля
+   */
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setNewServer({ ...newServer, [name]: value });
   };
 
+  /**
+   * Добавляет новый сервер в список
+   */
   const handleAddServer = () => {
     if (!newServer.name || !newServer.ip || !newServer.port) {
       setError('Пожалуйста, заполните все поля');
@@ -54,6 +73,10 @@ const ServerList = () => {
     setSuccess('Сервер успешно добавлен');
   };
 
+  /**
+   * Подключается к выбранному серверу
+   * @param {Object} server - Сервер для подключения
+   */
   const handleConnect = async (server) => {
     try {
       // Более чёткая проверка локального режима
@@ -102,11 +125,17 @@ const ServerList = () => {
     }
   };
 
+  /**
+   * Отключается от текущего сервера
+   */
   const handleDisconnect = () => {
     disconnectFromServer();
     setSuccess('Отключено от сервера');
   };
 
+  /**
+   * Закрывает уведомления
+   */
   const handleCloseAlert = () => {
     setError('');
     setSuccess('');
@@ -118,14 +147,30 @@ const ServerList = () => {
         Управление серверами
       </Typography>
 
+      {isConnected && sessionId && (
+        <Alert severity="success" sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <AccountTreeOutlined sx={{ mr: 1 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              Активная TCP-сессия: 
+              <Chip label={sessionId} size="small" color="primary" sx={{ ml: 1 }} />
+            </Box>
+          </Box>
+        </Alert>
+      )}
+
       <Paper sx={{ p: 2, mb: 4 }}>
         <Typography variant="h6" gutterBottom>
           Добавить новый сервер
         </Typography>
         <Box sx={{ mb: 2 }}>
-          <Alert severity="info">
-            Для тестирования без сервера используйте: IP=localhost, порт=8000. 
-            Если данные не отображаются, проверьте, что бэкенд-сервер запущен на порту 8000 (команда python backend/manage.py runserver).
+          <Alert severity="info" sx={{ '& .MuiAlert-message': { width: '100%' } }}>
+            <Typography variant="body2">
+              Доступные тестовые серверы: localhost:8000, localhost:8001, 127.0.0.1:8000
+            </Typography>
+            <Typography variant="body2" sx={{ fontSize: '0.8rem', mt: 0.5, color: 'text.secondary' }}>
+              Для работы с локальным сервером необходимо запустить: <code>python backend/manage.py runserver</code>
+            </Typography>
           </Alert>
         </Box>
         <Grid container spacing={2}>

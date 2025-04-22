@@ -10,7 +10,14 @@ import {
 } from '@mui/material';
 import ServerContext from '../context/ServerContext';
 
+/**
+ * Компонент навигационной панели
+ * 
+ * Отображает название системы, статус подключения к серверу
+ * и навигационные ссылки на основные разделы приложения.
+ */
 const Header = () => {
+  // Получаем информацию о подключении из контекста
   const { isConnected, currentServer } = useContext(ServerContext);
 
   return (
